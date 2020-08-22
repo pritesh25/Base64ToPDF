@@ -13,7 +13,6 @@ import androidx.core.content.FileProvider
 import kotlinx.coroutines.runBlocking
 import java.io.File
 import java.io.FileOutputStream
-import java.util.*
 
 
 class MainActivity : AppCompatActivity() {
@@ -55,8 +54,10 @@ class MainActivity : AppCompatActivity() {
                 packageName.plus(".provider"), newGlobalFilePath!!
             )
             pdfIntent.apply {
-                setDataAndType(photoURI, mimeType);
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                setDataAndType(photoURI, mimeType)
+                if (Build.VERSION.SDK_INT > Build.VERSION_CODES.N) {
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                }
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK
                 startActivity(this)
             }
@@ -86,17 +87,21 @@ class MainActivity : AppCompatActivity() {
         runBlocking {
 
             try {
-                pdfAsBytes = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                /*pdfAsBytes = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                     Base64.getDecoder().decode(getString(R.string.base64Data))
                 } else {
                     android.util.Base64.decode(
                         getString(R.string.base64Data),
                         android.util.Base64.DEFAULT
                     )
-                }
+                }*/
+
+                pdfAsBytes = android.util.Base64.decode(
+                    getString(R.string.base64Data),
+                    android.util.Base64.DEFAULT
+                )
 
                 fos.write(pdfAsBytes)
-                //fos.write(decode(getString(R.string.base64Data), NO_WRAP))
                 fos.flush()
                 fos.close()
                 Log.d(mTag, "finish runBlock")
