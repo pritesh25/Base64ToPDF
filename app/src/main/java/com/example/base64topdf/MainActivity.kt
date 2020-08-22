@@ -14,7 +14,6 @@ import kotlinx.coroutines.runBlocking
 import java.io.File
 import java.io.FileOutputStream
 
-
 class MainActivity : AppCompatActivity() {
 
     private val mTag = "MainActivity"
