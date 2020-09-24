@@ -1,9 +1,12 @@
 package com.example.base64topdf
 
+import android.app.DownloadManager
+import android.content.ContentValues
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
+import android.provider.MediaStore
 import android.util.Log
 import android.view.View
 import android.webkit.MimeTypeMap
@@ -11,10 +14,12 @@ import android.widget.Button
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.FileProvider
-import kotlinx.coroutines.runBlocking
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.*
 import java.io.File
 import java.io.FileOutputStream
 import java.util.*
+import kotlin.math.log
 
 
 class MainActivity : AppCompatActivity() {
@@ -22,7 +27,7 @@ class MainActivity : AppCompatActivity() {
     private val mTag = "MainActivity"
     private lateinit var buttonExport: Button
     private lateinit var buttonView: Button
-    private lateinit var buttonCreateFolder: Button
+    private lateinit var buttonSave: Button
     private var newGlobalFilePath: File? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -31,7 +36,7 @@ class MainActivity : AppCompatActivity() {
 
         buttonExport = findViewById(R.id.buttonExport)
         buttonView = findViewById(R.id.buttonView)
-        buttonCreateFolder = findViewById(R.id.buttonCreateFolder)
+        buttonSave = findViewById(R.id.buttonSave)
         buttonView.visibility = View.INVISIBLE
 
         buttonExport.setOnClickListener {
@@ -46,50 +51,97 @@ class MainActivity : AppCompatActivity() {
             openPDFFile()
         }
 
-        buttonCreateFolder.setOnClickListener {
-            createFolderInRoot()
+        buttonSave.setOnClickListener {
+            //saveInDownloadFolder(newFilePath)//click
         }
 
     }
 
-    companion object {
-        const val FOLDER_NAME = "kreduno"
-    }
-
-    private fun createFolderInRoot() {
-        val direct =
-            File("${Environment.getExternalStorageDirectory()}${File.separator}${Environment.DIRECTORY_DOWNLOADS}${File.separator}$FOLDER_NAME")
-        Log.d(mTag, "folder path = ${direct.path}")
-        if (direct.exists()) {
+    private fun createFolder() {
+        val fileRoot = File(getExternalFilesDir(null), "Invoices")
+        Log.d(mTag, "new filePath = $fileRoot")
+        if (fileRoot.exists()) {
             Log.d(mTag, "folder already exist")
+            createPDF(fileRoot)
         } else {
-            Log.d(mTag, "folder created now")
-            direct.mkdir()
+            Log.d(mTag, "if not then create new folder")
+            val isCreated = fileRoot.mkdirs()
+            if (isCreated) {
+                createPDF(fileRoot)
+            } else {
+                Log.d(mTag, "folder not created")
+            }
         }
+    }
+
+    private fun createPDF(fileRoot: File) {
+        var pdfAsBytes: ByteArray?
+        val newFileName = "Demo.pdf"
+        val newFilePath = File(fileRoot.path.plus(File.separator), newFileName)
+        Log.d(mTag,"before assign newGlobalFilePath = $newGlobalFilePath")
+        newGlobalFilePath = newFilePath
+
+        newGlobalFilePath?.let {
+            Log.d(mTag,"newGlobalFilePath let  = $it")
+        }?: kotlin.run {
+            Log.d(mTag,"newGlobalFilePath let  = null")
+        }
+
+        Log.d(mTag,"(createPDF) newFilePath = ${newFilePath.path}")
+        Log.d(mTag,"(createPDF) newGlobalFilePath = ${newGlobalFilePath!!.path}")
+
+        val fos = FileOutputStream(newFilePath, false)
+
+        Log.d(mTag, "coroutine before")
+
+        lifecycleScope.launch(Dispatchers.Main) {
+            withContext(Dispatchers.IO) {
+                try {
+                    pdfAsBytes = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        Base64.getDecoder().decode(getString(R.string.base64Data))
+                    } else {
+                        android.util.Base64.decode(
+                            getString(R.string.base64Data),
+                            android.util.Base64.DEFAULT
+                        )
+                    }
+
+                    fos.write(pdfAsBytes)
+                    fos.flush()
+                    fos.close()
+                    Log.d(mTag, "coroutine finish")
+                    buttonView.visibility = View.VISIBLE
+                } catch (e: java.lang.Exception) {
+                    Log.d(mTag, "catch error = ${e.message}")
+                }
+            }
+            Log.d(mTag, "coroutine after withcontext")
+            saveInDownloadFolder(newGlobalFilePath)//after Coroutine
+        }
+        Log.d(mTag, "coroutine after GlobalScope")
     }
 
     private fun openPDFFile() {
         try {
 
-            newGlobalFilePath?.let {
+            newGlobalFilePath?.let { /* openPDFFile */
 
                 Log.d(mTag, "file = ${it.path}")
 
-                val mimeTypeMap = MimeTypeMap.getSingleton()
-                val pdfIntent = Intent(Intent.ACTION_VIEW)
-                val mimeType = mimeTypeMap.getMimeTypeFromExtension(it.extension)
+                val mimeType = MimeTypeMap.getSingleton().getMimeTypeFromExtension(it.extension)
                 Log.d(mTag, "mimeType = $mimeType")
                 val photoURI = FileProvider.getUriForFile(
                     applicationContext,
-                    packageName.plus(".provider"), File("storage/emulated/0/Download/Demo.pdf")
+                    "com.example.base64topdf.provider", it
                 )
+                val pdfIntent = Intent(Intent.ACTION_VIEW)
                 pdfIntent.apply {
                     setDataAndType(photoURI, mimeType)
                     if (Build.VERSION.SDK_INT > Build.VERSION_CODES.N) {
                         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                     }
                     flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                    startActivity(Intent.createChooser(this, "Open File Using..."))
+                    startActivity(this)
                 }
 
                 /*val intent = Intent(Intent.ACTION_VIEW)
@@ -115,57 +167,49 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun createFolder() {
-        val fileRoot = File(getExternalFilesDir(null), "Invoices")
-        Log.d(mTag, "new filePath = $fileRoot")
-        if (fileRoot.exists()) {
-            Log.d(mTag, "folder already exist")
-            createPDF(fileRoot)
-        } else {
-            Log.d(mTag, "if not then create new folder")
-            val isCreated = fileRoot.mkdirs()
-            if (isCreated) {
-                createPDF(fileRoot)
+    private fun saveInDownloadFolder(it: File?) {
+
+        it?.let { /* saveInDownloadFolder */
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                // You can add more columns.. Complete list of columns can be found at
+                // https://developer.android.com/reference/android/provider/MediaStore.Downloads
+                val contentValues = ContentValues()
+                contentValues.put(MediaStore.Downloads.TITLE, it.name);
+                contentValues.put(MediaStore.Downloads.DISPLAY_NAME, it.name);
+                contentValues.put(
+                    MediaStore.Downloads.MIME_TYPE,
+                    MimeTypeMap.getSingleton().getMimeTypeFromExtension(it.extension)
+                );
+                contentValues.put(MediaStore.Downloads.SIZE, it.length());
+
+                // If you downloaded to a specific folder inside "Downloads" folder
+                contentValues.put(
+                    MediaStore.Downloads.RELATIVE_PATH,
+                    Environment.DIRECTORY_DOWNLOADS + File.separator + "Temp"
+                );
+
+                // Insert into the database
+                val database = contentResolver;
+                database.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
             } else {
-                Log.d(mTag, "folder not created")
+                val downloadService = getSystemService(DOWNLOAD_SERVICE) as DownloadManager
+                downloadService.addCompletedDownload(
+                    it.name,
+                    it.name,
+                    true,
+                    MimeTypeMap.getSingleton().getMimeTypeFromExtension(it.extension),
+                    it.absolutePath,
+                    it.length(),
+                    true
+                )
             }
+
+        } ?: kotlin.run {
+            Log.d(mTag, "(saveInDownloadFolder) newGlobalFilePath is null")
         }
+
+        Log.d(mTag,"after let newFilePath = $it")
+
     }
-
-    private fun createPDF(fileRoot: File) {
-        var pdfAsBytes: ByteArray?
-        val newFileName = "Demo.pdf"
-        val newFilePath = File(fileRoot.path.plus(File.separator), newFileName)
-        newGlobalFilePath = newFilePath
-        val fos = FileOutputStream(newFilePath, false)
-
-        Log.d(mTag, "before runBlock")
-        runBlocking {
-            try {
-                pdfAsBytes = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    Base64.getDecoder().decode(getString(R.string.base64Data))
-                } else {
-                    android.util.Base64.decode(
-                        getString(R.string.base64Data),
-                        android.util.Base64.DEFAULT
-                    )
-                }
-
-                /*pdfAsBytes = android.util.Base64.decode(
-                    getString(R.string.base64Data),
-                    android.util.Base64.DEFAULT
-                )*/
-
-                fos.write(pdfAsBytes)
-                fos.flush()
-                fos.close()
-                Log.d(mTag, "finish runBlock")
-                buttonView.visibility = View.VISIBLE
-            } catch (e: java.lang.Exception) {
-                Log.d(mTag, "catch error = ${e.message}")
-            }
-        }
-        Log.d(mTag, "after runBlock")
-    }
-
 }
