@@ -14,12 +14,13 @@ import android.widget.Button
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.FileProvider
-import androidx.lifecycle.lifecycleScope
-import kotlinx.coroutines.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
 import java.util.*
-import kotlin.math.log
 
 
 class MainActivity : AppCompatActivity() {
@@ -37,6 +38,7 @@ class MainActivity : AppCompatActivity() {
         buttonExport = findViewById(R.id.buttonExport)
         buttonView = findViewById(R.id.buttonView)
         buttonSave = findViewById(R.id.buttonSave)
+
         buttonView.visibility = View.INVISIBLE
 
         buttonExport.setOnClickListener {
@@ -55,6 +57,66 @@ class MainActivity : AppCompatActivity() {
             //saveInDownloadFolder(newFilePath)//click
         }
 
+        findViewById<Button>(R.id.buttonCreateFolder).setOnClickListener {
+            createMyFolder()
+        }
+
+    }
+
+    private fun createMyFolder() {
+
+        /*val sub: File = File(filesDir, "subdirectory")
+        Log.d(mTag, "sub = $sub")
+        if (!sub.exists()) sub.mkdirs()*/
+
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val resolver = contentResolver
+            val contentValues = ContentValues().apply {
+                //put(MediaStore.MediaColumns.DISPLAY_NAME, "CuteKitten001")
+                //put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
+                put(
+                    MediaStore.Downloads.RELATIVE_PATH,
+                    Environment.DIRECTORY_DOWNLOADS + File.separator + "Pritesh"
+                )
+            }
+            val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
+            resolver.openOutputStream(uri!!).use {
+
+            }
+        } else {
+            Log.d(mTag, "rootFile = ${Environment.getExternalStorageState()}")
+            val rootDirectory =
+                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS + File.separator)
+
+            Log.d(mTag, "rootFile = $rootDirectory")
+            Log.d(mTag, "rootFile isDirectory = ${rootDirectory.isDirectory}")
+
+            if (rootDirectory.exists()) {
+                //no need to create
+                Log.d(mTag, "root folder already exist, now create custom Directory")
+                createMyNameFolder()
+            } else {
+                val status = rootDirectory.mkdir()
+                Log.d(mTag, "directory created | status = $status")
+                if (status) {
+                    createMyNameFolder()
+                } else {
+                    Log.d(mTag, "unable to create folder")
+                }
+            }
+        }
+    }
+
+    private fun createMyNameFolder() {
+        val myDirectory =
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS + File.separator + "Pritesh" + File.separator)
+        if (myDirectory.exists()) {
+            Log.d(mTag, "myDirectory folder already exist")
+        } else {
+            Log.d(mTag, "myDirectory folder created now")
+            myDirectory.mkdir()
+        }
     }
 
     private fun createFolder() {
@@ -78,23 +140,12 @@ class MainActivity : AppCompatActivity() {
         var pdfAsBytes: ByteArray?
         val newFileName = "Demo.pdf"
         val newFilePath = File(fileRoot.path.plus(File.separator), newFileName)
-        Log.d(mTag,"before assign newGlobalFilePath = $newGlobalFilePath")
         newGlobalFilePath = newFilePath
-
-        newGlobalFilePath?.let {
-            Log.d(mTag,"newGlobalFilePath let  = $it")
-        }?: kotlin.run {
-            Log.d(mTag,"newGlobalFilePath let  = null")
-        }
-
-        Log.d(mTag,"(createPDF) newFilePath = ${newFilePath.path}")
-        Log.d(mTag,"(createPDF) newGlobalFilePath = ${newGlobalFilePath!!.path}")
 
         val fos = FileOutputStream(newFilePath, false)
 
         Log.d(mTag, "coroutine before")
-
-        lifecycleScope.launch(Dispatchers.Main) {
+        GlobalScope.launch(Dispatchers.Main) {
             withContext(Dispatchers.IO) {
                 try {
                     pdfAsBytes = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -105,18 +156,18 @@ class MainActivity : AppCompatActivity() {
                             android.util.Base64.DEFAULT
                         )
                     }
-
                     fos.write(pdfAsBytes)
                     fos.flush()
-                    fos.close()
                     Log.d(mTag, "coroutine finish")
-                    buttonView.visibility = View.VISIBLE
                 } catch (e: java.lang.Exception) {
                     Log.d(mTag, "catch error = ${e.message}")
+                } finally {
+                    fos.close()
                 }
             }
+            buttonView.visibility = View.VISIBLE
             Log.d(mTag, "coroutine after withcontext")
-            saveInDownloadFolder(newGlobalFilePath)//after Coroutine
+            saveInDownloadFolder2(newGlobalFilePath!!)//after Coroutine
         }
         Log.d(mTag, "coroutine after GlobalScope")
     }
@@ -167,33 +218,74 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun saveInDownloadFolder(it: File?) {
+    private fun saveInDownloadFolder(it: File) {
+
+        //Log.d(mTag, "(saveInDownloadFolder) it exist ? = ${it!!.exists()}")
+        //Log.d(mTag, "(saveInDownloadFolder) it read    = ${it.canRead()}")
+
+        //it?.let { /* saveInDownloadFolder */
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            // You can add more columns.. Complete list of columns can be found at
+            // https://developer.android.com/reference/android/provider/MediaStore.Downloads
+            val contentValues = ContentValues()
+            contentValues.put(MediaStore.Downloads.TITLE, it.name);
+            contentValues.put(MediaStore.Downloads.DISPLAY_NAME, it.name);
+            contentValues.put(
+                MediaStore.Downloads.MIME_TYPE,
+                MimeTypeMap.getSingleton().getMimeTypeFromExtension(it.extension)
+            );
+            contentValues.put(MediaStore.Downloads.SIZE, it.length());
+
+            // If you downloaded to a specific folder inside "Downloads" folder
+            contentValues.put(
+                MediaStore.Downloads.RELATIVE_PATH,
+                Environment.DIRECTORY_DOWNLOADS + File.separator + "Temp"
+            );
+
+            // Insert into the database
+            val database = contentResolver;
+            database.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
+        } else {
+            val downloadService = getSystemService(DOWNLOAD_SERVICE) as DownloadManager
+            downloadService.addCompletedDownload(
+                it.name,
+                it.name,
+                true,
+                MimeTypeMap.getSingleton().getMimeTypeFromExtension(it.extension),
+                it.absolutePath,
+                it.length(),
+                true
+            )
+        }
+
+        /*} ?: kotlin.run {
+            Log.d(mTag, "(saveInDownloadFolder) newGlobalFilePath is null")
+        }*/
+
+        Log.d(mTag, "after let newFilePath = $it")
+
+    }
+
+    private fun saveInDownloadFolder2(it: File?) {
+
+        //Log.d(mTag, "(saveInDownloadFolder) it exist ? = ${it!!.exists()}")
+        //Log.d(mTag, "(saveInDownloadFolder) it read    = ${it.canRead()}")
 
         it?.let { /* saveInDownloadFolder */
 
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                // You can add more columns.. Complete list of columns can be found at
-                // https://developer.android.com/reference/android/provider/MediaStore.Downloads
-                val contentValues = ContentValues()
-                contentValues.put(MediaStore.Downloads.TITLE, it.name);
-                contentValues.put(MediaStore.Downloads.DISPLAY_NAME, it.name);
-                contentValues.put(
-                    MediaStore.Downloads.MIME_TYPE,
-                    MimeTypeMap.getSingleton().getMimeTypeFromExtension(it.extension)
-                );
-                contentValues.put(MediaStore.Downloads.SIZE, it.length());
-
-                // If you downloaded to a specific folder inside "Downloads" folder
-                contentValues.put(
-                    MediaStore.Downloads.RELATIVE_PATH,
-                    Environment.DIRECTORY_DOWNLOADS + File.separator + "Temp"
-                );
-
-                // Insert into the database
-                val database = contentResolver;
-                database.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
+            val downloadService = getSystemService(DOWNLOAD_SERVICE) as DownloadManager
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                downloadService.addCompletedDownload(
+                    it.name,
+                    it.name,
+                    true,
+                    MimeTypeMap.getSingleton().getMimeTypeFromExtension(it.extension),
+                    it.absolutePath,
+                    it.length(),
+                    true
+                )
             } else {
-                val downloadService = getSystemService(DOWNLOAD_SERVICE) as DownloadManager
                 downloadService.addCompletedDownload(
                     it.name,
                     it.name,
@@ -209,7 +301,7 @@ class MainActivity : AppCompatActivity() {
             Log.d(mTag, "(saveInDownloadFolder) newGlobalFilePath is null")
         }
 
-        Log.d(mTag,"after let newFilePath = $it")
+        Log.d(mTag, "after let newFilePath = $it")
 
     }
 }
