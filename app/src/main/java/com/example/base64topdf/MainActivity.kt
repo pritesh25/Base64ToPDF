@@ -113,9 +113,11 @@ class MainActivity : AppCompatActivity() {
             Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS + File.separator + "Pritesh" + File.separator)
         if (myDirectory.exists()) {
             Log.d(mTag, "myDirectory folder already exist")
+            Log.d(mTag, "myDirectory name = ${myDirectory.path}")
         } else {
             Log.d(mTag, "myDirectory folder created now")
             myDirectory.mkdir()
+            Log.d(mTag, "myDirectory name = ${myDirectory.path}")
         }
     }
 
